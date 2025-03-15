@@ -100,6 +100,13 @@ PrintfJumpTable:
 
     spec_d:
         jmp print_int
+
+    ; nop
+        db ('s' - 'd') * 2 - 2 dup(0x90)          ; nop
+
+    spec_s:
+        jmp print_str
+        
 ;----------------------------------------------------------------------------------------
 
 
@@ -135,6 +142,30 @@ print_int:
         call IntToASCII
         pop  rdi
         
+        jmp  read_new_sym
+
+print_str:
+        mov  rax, [rbp + rcx * 8 + 16]
+        inc  rcx
+        push rdi
+
+        next_char_print_str:
+        cmp  rsi, PrintfBufferEnd
+        jb   free_buffer_print_str
+        call ResetPrintfBuffer
+
+    free_buffer_print_str:
+        mov  dil, [rax]
+        mov  [rsi], dil
+        inc  rax
+        inc  rsi
+
+        test dil, dil                   ; while != '\0'
+        jnz  next_char_print_str
+
+        dec  rsi                        ; remove '\0'
+
+        pop  rdi
         jmp  read_new_sym
 
 ;=================================================================================
