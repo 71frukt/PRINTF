@@ -5,9 +5,9 @@
 ; nasm -f elf64 -l my_printf.lst my_printf.asm  ;  ld -s -o my_printf my_printf.o
 
 %assign MAX_FORMAT_STR_LEN  100
-%assign PRINTF_BUFFER_LEN   128
+%assign PRINTF_BUFFER_LEN   64
 
-%assign MAX_INT_ASCII_LEN   20          ; 20 digits in max int (2^64)
+%assign MAX_INT_ASCII_LEN   18          ; 20 digits in max int (2^64)
 
 section .text
 
@@ -34,12 +34,18 @@ MyPrintf:
         push rbp                        ; install the stack frame
         mov  rbp, rsp                   ; [rbp + 0*8 + 16] = 2nd arg
 
-        lea  rsi, [rel PrintfBuffer]    ; rsi = place to print in the buffer
-        ; xor  rsi, rsi                   ; rsi = buffer len: the first free cell in buffer = [rel PrintfBuffer + rsi]
+        mov  rsi, PrintfBuffer          ; rsi = place to print in the buffer
         xor  rcx, rcx                   ; rcx = stack offset for addressing the argument for the current specifier. 
                                         ; argument for current specifier = [rbp + rcx * 8 + 16]
 read_new_sym:
-        mov  al, [rdi]                   ; al = symbol
+        cmp  rsi, PrintfBufferEnd
+        jb   free_buffer
+        push rdi
+        call ResetPrintfBuffer
+        pop  rdi
+
+    free_buffer:
+        mov  al, [rdi]                   ; al = symbol (rdi = spec str)
         inc  rdi
 
         test al, al                     ; if symbol = '\0'
@@ -48,23 +54,23 @@ read_new_sym:
         cmp  al, '%'
         je  is_specifier
 
-        ; lea  rbx, [rel PrintfBuffer]
+        ; lea  rbx, [ PrintfBuffer]
         mov  [rsi], al
         inc  rsi
         jmp  read_new_sym
 
 
 is_specifier:
+        xor  rax, rax
         mov  al, [rdi]                   ; al = specifier symbol
         inc  rdi
 
-        cmp  al, 'c'
-        je   print_char
+        sub  rax, 'a'
+        sal  rax, 1
 
-        cmp  al, 'd'
-        je   print_int
+        lea  rax, [PrintfJumpTable + rax]
 
-
+        jmp  rax
 
 end_of_spec_str:
         ; mov  eax, dword [rbp + 16]
@@ -81,18 +87,43 @@ end_of_spec_str:
 ;----------------------------------------------------------------------------------------
 
 
+;----------------------------------------------------------------------------------------
+PrintfJumpTable:
+    spec_a:
+        db '00'
+
+    spec_b:
+        jmp print_bin
+        
+    spec_c:
+        jmp print_char
+
+    spec_d:
+        jmp print_int
+;----------------------------------------------------------------------------------------
+
+
+;----------------------------------------------------------------------------------------
+
+print_bin:
+        mov  rax, [rbp + rcx * 8 + 16]
+        inc  rcx
+        push rdi
+        call BinToASCII
+        pop  rdi
+        jmp  read_new_sym
+
 print_char:
         mov  al, [rbp + rcx * 8 + 16]
         inc  rcx
 
-        ; lea  rbx, [rel PrintfBuffer]
+        ; lea  rbx, [PrintfBuffer]
         mov  [rsi], al
         inc  rsi
         jmp  read_new_sym
 
 print_int:
-        lea  rbx, [rel PrintfBufferEnd]
-        cmp  rsi, rbx
+        cmp  rsi, PrintfBufferEnd
         jna  buf_is_ready_print_int
         call ResetPrintfBuffer
 
@@ -101,12 +132,12 @@ print_int:
         inc  rcx
 
         push rdi
-        call ItoA_dec
-        pop rdi
+        call IntToASCII
+        pop  rdi
         
         jmp  read_new_sym
 
-
+;=================================================================================
 
 
 
@@ -133,14 +164,14 @@ CountStrLen:
 
 
 ;=================================================================================
-; Converts the decimal number
+; Converts the decimal number to ASCII
 ; Input:        rax = dec_num, rsi = dest_buffer
 ; Output:       rsi += printed_number_length
-; Destroys:     rax, rbx, rsi, rdi
+; Destroys:     rax, rbx, rdx, rsi, rdi
 ;=================================================================================
-ItoA_dec:
-        lea  rdi, [rel ItoABuffer]
-        add  rdi, MAX_INT_ASCII_LEN     ; rdi = end of buffer
+IntToASCII:
+        mov  rdi, ItoABuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
+        ; add  rdi, MAX_INT_ASCII_LEN     ; rdi = end of buffer
 
         mov  rbx, 10                    ; in order to then div by 10 with the residue
 
@@ -155,8 +186,7 @@ ItoA_dec:
 
         inc  rdi                        ; rdi to start of res str
 
-        lea  rbx, [rel ItoABuffer]
-        add  rbx, MAX_INT_ASCII_LEN     ; rbx = end of buffer
+        lea  rbx, [ItoABuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
 
     store_next_dec_digit:
         mov  al, [rdi]
@@ -172,34 +202,57 @@ ItoA_dec:
 
 
 ;=================================================================================
+; Converts the binary number to ASCII
+; Input:        rax = bin_num, rsi = dest_buffer
+; Output:       rsi += printed_number_length
+; Destroys:     rax, rbx, rdx, rsi, rdi
+;=================================================================================
+BinToASCII:
+    next_bin_digit:
+        cmp  rsi, PrintfBufferEnd
+        jb   free_buffer_BtoA
+        call ResetPrintfBuffer
+
+    free_buffer_BtoA:
+        push rax
+        and  al, 1
+        add  al, '0'
+        mov  [rsi], al
+        inc  rsi
+        pop  rax
+
+        sar  rax, 1
+        test rax, rax
+        jnz  next_bin_digit
+
+        ret
+;=================================================================================
+
+
+;=================================================================================
 ; Resets the PrintfBuffer to the console
 ; Input:        rsi = filled buffer end
-; Output:       none
-; Destroys:     rdi, rax, rdx
+; Output:       rsi = buffer start
+; Destroys:     rdi, rsi, rax, rdx
 ;=================================================================================
 ResetPrintfBuffer:
-        push rsi
-
-        lea  rdx, [rel PrintfBufferEnd]
-        sub  rdx, rsi
-        lea  rsi, [rel PrintfBuffer]    ; buffer
+        mov  rdx, rsi
+        sub  rdx, PrintfBuffer
+        mov  rsi, PrintfBuffer
 
         mov  rdi, 1                     ; file descriptor (1 = stdout)
         mov  rax, 1                     ; write syscall
-        syscall        
+        
+        push rcx
+        syscall 
+        pop  rcx       
 
-        pop rsi
         ret
 ;=================================================================================
 
 section     .data
  
 
-Msg:        db "__Hllwrld", 0x0a
-MsgLen      equ $ - Msg
-
-
-; section     .bss
 PrintfBuffer db PRINTF_BUFFER_LEN dup (0)
 PrintfBufferEnd:
 
