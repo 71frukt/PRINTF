@@ -4,7 +4,8 @@ extern "C" void MyPrintf(const char* str, ...);
 
 int main()
 {
-    MyPrintf("PARASHA %c %c %c!!\n!!", 'h', 'g', 'b');
+    MyPrintf("PARASHA %c %c %d!!\n!!", 'h', 'g', 123);
+    // MyPrintf("PARASHA!!!");
 
     return 0; 
-} 
+}       
