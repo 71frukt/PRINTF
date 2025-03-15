@@ -102,10 +102,17 @@ PrintfJumpTable:
         jmp print_int
 
     ; nop
-        db ('s' - 'd') * 2 - 2 dup(0x90)          ; nop
+        db ('o' - 'd') * 2 - 2 dup(0x90)
+
+    spec_o:
+        jmp print_octal
+
+    ; nop
+        db ('s' - 'o') * 2 - 2 dup(0x90)
 
     spec_s:
         jmp print_str
+
         
 ;----------------------------------------------------------------------------------------
 
@@ -130,11 +137,11 @@ print_char:
         jmp  read_new_sym
 
 print_int:
-        cmp  rsi, PrintfBufferEnd
-        jna  buf_is_ready_print_int
-        call ResetPrintfBuffer
+;         cmp  rsi, PrintfBufferEnd
+;         jna  buf_is_ready_print_int
+;         call ResetPrintfBuffer
 
-    buf_is_ready_print_int:
+;     buf_is_ready_print_int:
         mov  rax, [rbp + rcx * 8 + 16]
         inc  rcx
 
@@ -166,6 +173,21 @@ print_str:
         dec  rsi                        ; remove '\0'
 
         pop  rdi
+        jmp  read_new_sym
+
+print_octal:
+        cmp  rsi, PrintfBufferEnd
+        jna  buf_is_ready_print_int
+        call ResetPrintfBuffer
+
+    buf_is_ready_print_int:
+        mov  rax, [rbp + rcx * 8 + 16]
+        inc  rcx
+
+        push rdi
+        call IntToASCII
+        pop  rdi
+        
         jmp  read_new_sym
 
 ;=================================================================================
@@ -202,11 +224,14 @@ CountStrLen:
 ;=================================================================================
 IntToASCII:
         mov  rdi, ItoABuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
-        ; add  rdi, MAX_INT_ASCII_LEN     ; rdi = end of buffer
 
         mov  rbx, 10                    ; in order to then div by 10 with the residue
 
     next_dec_digit:
+        cmp  rsi, PrintfBufferEnd
+        jb   free_buffer_BtoA
+        call ResetPrintfBuffer
+
         xor  dl, dl
         div  rbx                        ; rdx = residue
         add  dl, '0'

@@ -3,7 +3,7 @@ CC = g++
 ASM = nasm
 CFLAGS = -Wall -Wextra -std=c++17
 ASMFLAGS = -f elf64
-LDFLAGS = 
+LDFLAGS = -no-pie
 
 # Исходные файлы
 SRC_ASM = my_printf.asm
