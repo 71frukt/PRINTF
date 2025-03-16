@@ -101,17 +101,21 @@ PrintfJumpTable:
     spec_d:
         jmp print_int
 
-    ; nop
-        db ('o' - 'd') * 2 - 2 dup(0x90)
+        db ('h' - 'd') * 2 - 2 dup(0x90)
 
+    spec_h:
+        jmp print_hex
+
+        db ('o' - 'h') * 2 - 2 dup (0x90)
+    
     spec_o:
         jmp print_octal
 
-    ; nop
         db ('s' - 'o') * 2 - 2 dup(0x90)
-
+        
     spec_s:
         jmp print_str
+
 
         
 ;----------------------------------------------------------------------------------------
@@ -171,12 +175,21 @@ print_str:
         jmp  read_new_sym
 
 print_octal:
-    buf_is_ready_print_int:
         mov  rax, [rbp + rcx * 8 + 16]
         inc  rcx
 
         push rdi
-        call IntToASCII
+        call OctToASCII
+        pop  rdi
+        
+        jmp  read_new_sym
+
+print_hex:
+        mov  rax, [rbp + rcx * 8 + 16]
+        inc  rcx
+
+        push rdi
+        call HexToASCII
         pop  rdi
         
         jmp  read_new_sym
@@ -214,16 +227,17 @@ CountStrLen:
 ; Destroys:     rax, rbx, rdx, rsi, rdi
 ;=================================================================================
 IntToASCII:
-        mov  rdi, ItoABuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
+        mov  rdi, ConverterBuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
 
         mov  rbx, 10                    ; in order to then div by 10 with the residue
 
     next_dec_digit:
         cmp  rsi, PrintfBufferEnd
-        jb   free_buffer_BtoA
+        jb   free_buffer_itoa
         call ResetPrintfBuffer
 
-        xor  dl, dl
+    free_buffer_itoa:
+        xor  rdx, rdx
         div  rbx                        ; rdx = residue
         add  dl, '0'
         mov  [rdi], dl
@@ -233,7 +247,7 @@ IntToASCII:
 
         inc  rdi                        ; rdi to start of res str
 
-        lea  rbx, [ItoABuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
+        lea  rbx, [ConverterBuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
 
     store_next_dec_digit:
         mov  al, [rdi]
@@ -258,20 +272,20 @@ BinToASCII:
     ; rax = 00..01..
         xor  bh, bh                 ; bh = digit of rax (0 -> 64)
 
-    skip_nulls:
+    skip_nulls_btoa:
         test rax, rax
-        js   nulls_are_skipped      ; if the highest bit == 1 --> nulls_are_skipped
+        js   nulls_are_skipped_btoa ; if the highest bit == 1 --> nulls_are_skipped
         sal  rax, 1                 ; else shift left
         inc  bh                     ; counter++
-        jmp  skip_nulls
-    nulls_are_skipped:
+        jmp  skip_nulls_btoa
+    nulls_are_skipped_btoa:
 
     next_bin_digit:
         cmp  rsi, PrintfBufferEnd
-        jb   free_buffer_BtoA
+        jb   free_buffer_btoa
         call ResetPrintfBuffer
 
-    free_buffer_BtoA:
+    free_buffer_btoa:
         test rax, rax
         js   bit_1_btoa
         mov  bl, '0'
@@ -300,37 +314,91 @@ BinToASCII:
 ; Destroys:     rax, rbx, rdx, rsi, rdi
 ;=================================================================================
 OctToASCII:
-    ;     mov  rdi, ItoABuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
+        mov  rdi, ConverterBuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
 
-    ;     mov  rbx, 10                    ; in order to then div by 10 with the residue
+    next_oct_digit:
+        cmp  rsi, PrintfBufferEnd
+        jb   free_buffer_otoa
+        call ResetPrintfBuffer
 
-    ; next_dec_digit:
-    ;     cmp  rsi, PrintfBufferEnd
-    ;     jb   free_buffer_BtoA
-    ;     call ResetPrintfBuffer
+    free_buffer_otoa:
+        mov  dl, al
+        and  dl, 7
+        sar  rax, 3
 
-    ;     xor  dl, dl
-    ;     div  rbx                        ; rdx = residue
-    ;     add  dl, '0'
-    ;     mov  [rdi], dl
-    ;     dec  rdi
-    ;     test rax, rax
-    ;     jnz  next_dec_digit
+        add  dl, '0'
+        mov  [rdi], dl
+        dec  rdi
+        test rax, rax
+        jnz  next_oct_digit
 
-    ;     inc  rdi                        ; rdi to start of res str
+        inc  rdi                        ; rdi to start of res str
 
-    ;     lea  rbx, [ItoABuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
+        lea  rbx, [ConverterBuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
 
-    ; store_next_dec_digit:
-    ;     mov  al, [rdi]
-    ;     mov  [rsi], al
-    ;     inc  rdi
-    ;     inc  rsi
-    ;     cmp  rdi, rbx
-    ;     jbe  store_next_dec_digit
+    store_next_oct_digit:
+        mov  al, [rdi]
+        mov  [rsi], al
+        inc  rdi
+        inc  rsi
+        cmp  rdi, rbx
+        jbe  store_next_oct_digit
         
-    ;     ret
+        ret
 ;=================================================================================
+
+
+
+;=================================================================================
+; Converts a string ending with a space to a hexadecimal number
+; after work of the func si indicates on the next arg
+;
+; Input:        rax = dec_num, rsi = dest_buffer
+; Output:       rsi += printed_number_length
+; Destroys:     rax, rbx, rdx, rsi, rdi
+;=================================================================================
+HexToASCII:
+        xor  bh, bh                 ; bh = digit of rax (0 -> 16)
+
+    skip_nulls_htoa:
+        rol  rax, 4
+        mov  bl, al                 ; 2nd half of bl = cur_digit
+        and  bl, 0x0F
+        
+        test bl, bl
+
+        jnz  nulls_are_skipped_htoa
+
+        inc  bh                     ; counter++
+        jmp  skip_nulls_htoa
+    nulls_are_skipped_htoa:
+
+    next_hex_digit:
+        mov  bl,  al                ; bl = cur_digit
+        and  bl, 0x0F
+
+        rol  rax, 4
+
+        cmp  bl, 9h
+        ja   is_letter_htoa
+        add  bl, '0'    
+        jmp  is_parsed_htoa
+
+    is_letter_htoa:
+        add  bl, 'A' - 0Ah
+
+    is_parsed_htoa:
+        mov  [rsi], bl
+        inc  rsi
+
+        inc  bh
+        cmp  bh, 16
+        jb   next_hex_digit
+
+        ret
+;=================================================================================
+
+
 
 
 ;=================================================================================
@@ -361,6 +429,6 @@ PrintfBuffer db PRINTF_BUFFER_LEN dup (0)
 PrintfBufferEnd:
 
 db           'DETSKOE PORNO'
-ItoABuffer   db MAX_INT_ASCII_LEN dup (0)
+ConverterBuffer   db MAX_INT_ASCII_LEN dup (0)
 
 section     .note.GNU-stack noalloc noexec nowrite progbits
