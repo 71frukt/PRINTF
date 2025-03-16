@@ -137,11 +137,6 @@ print_char:
         jmp  read_new_sym
 
 print_int:
-;         cmp  rsi, PrintfBufferEnd
-;         jna  buf_is_ready_print_int
-;         call ResetPrintfBuffer
-
-;     buf_is_ready_print_int:
         mov  rax, [rbp + rcx * 8 + 16]
         inc  rcx
 
@@ -176,10 +171,6 @@ print_str:
         jmp  read_new_sym
 
 print_octal:
-        cmp  rsi, PrintfBufferEnd
-        jna  buf_is_ready_print_int
-        call ResetPrintfBuffer
-
     buf_is_ready_print_int:
         mov  rax, [rbp + rcx * 8 + 16]
         inc  rcx
@@ -264,24 +255,81 @@ IntToASCII:
 ; Destroys:     rax, rbx, rdx, rsi, rdi
 ;=================================================================================
 BinToASCII:
+    ; rax = 00..01..
+        xor  bh, bh                 ; bh = digit of rax (0 -> 64)
+
+    skip_nulls:
+        test rax, rax
+        js   nulls_are_skipped      ; if the highest bit == 1 --> nulls_are_skipped
+        sal  rax, 1                 ; else shift left
+        inc  bh                     ; counter++
+        jmp  skip_nulls
+    nulls_are_skipped:
+
     next_bin_digit:
         cmp  rsi, PrintfBufferEnd
         jb   free_buffer_BtoA
         call ResetPrintfBuffer
 
     free_buffer_BtoA:
-        push rax
-        and  al, 1
-        add  al, '0'
-        mov  [rsi], al
-        inc  rsi
-        pop  rax
-
-        sar  rax, 1
         test rax, rax
-        jnz  next_bin_digit
+        js   bit_1_btoa
+        mov  bl, '0'
+        jmp  print_bit_btoa
+
+    bit_1_btoa:
+        mov  bl, '1'
+
+    print_bit_btoa:
+        mov  [rsi], bl
+        inc  rsi
+        sal  rax, 1
+
+        inc  bh
+        cmp  bh, 64
+        jb   next_bin_digit
 
         ret
+;=================================================================================
+
+
+;=================================================================================
+; Converts the octal number to ASCII
+; Input:        rax = dec_num, rsi = dest_buffer
+; Output:       rsi += printed_number_length
+; Destroys:     rax, rbx, rdx, rsi, rdi
+;=================================================================================
+OctToASCII:
+    ;     mov  rdi, ItoABuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
+
+    ;     mov  rbx, 10                    ; in order to then div by 10 with the residue
+
+    ; next_dec_digit:
+    ;     cmp  rsi, PrintfBufferEnd
+    ;     jb   free_buffer_BtoA
+    ;     call ResetPrintfBuffer
+
+    ;     xor  dl, dl
+    ;     div  rbx                        ; rdx = residue
+    ;     add  dl, '0'
+    ;     mov  [rdi], dl
+    ;     dec  rdi
+    ;     test rax, rax
+    ;     jnz  next_dec_digit
+
+    ;     inc  rdi                        ; rdi to start of res str
+
+    ;     lea  rbx, [ItoABuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
+
+    ; store_next_dec_digit:
+    ;     mov  al, [rdi]
+    ;     mov  [rsi], al
+    ;     inc  rdi
+    ;     inc  rsi
+    ;     cmp  rdi, rbx
+    ;     jbe  store_next_dec_digit
+        
+    ;     ret
 ;=================================================================================
 
 
