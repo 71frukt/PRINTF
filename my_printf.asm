@@ -65,7 +65,7 @@ is_specifier:
         mov  al, [rdi]                   ; al = specifier symbol
         inc  rdi
 
-        sub  rax, 'a'
+        sub  rax, '%'
         sal  rax, 1
 
         lea  rax, [PrintfJumpTable + rax]
@@ -89,8 +89,10 @@ end_of_spec_str:
 
 ;----------------------------------------------------------------------------------------
 PrintfJumpTable:
-    spec_a:
-        db '00'
+    spec_percent:
+        jmp print_percent
+
+        db ('b' - '%') * 2 - 2 dup(0x90)
 
     spec_b:
         jmp print_bin
@@ -122,6 +124,11 @@ PrintfJumpTable:
 
 
 ;----------------------------------------------------------------------------------------
+
+print_percent:
+        mov  byte [rsi], '%'
+        inc  rsi
+        jmp read_new_sym
 
 print_bin:
         mov  rax, [rbp + rcx * 8 + 16]
