@@ -206,7 +206,7 @@ print_hex:
 
 
 ;=================================================================================
-; Counts length of string formated like ".. .."
+; Counts length of string formatted like ".. .."
 ;
 ; Input:        rdi = str_pointer
 ; Output:       rax = length (excluding "")
@@ -238,6 +238,14 @@ IntToASCII:
 
         mov  rbx, 10                    ; in order to then div by 10 with the residue
 
+        cdqe                            ; extend eax to rax in additional code 
+
+        push rax
+        test rax, rax
+        jns  next_dec_digit             ; if is negative
+        not  rax                        ; take positive part of num
+        inc  rax
+
     next_dec_digit:
         cmp  rsi, PrintfBufferEnd
         jb   free_buffer_itoa
@@ -252,9 +260,14 @@ IntToASCII:
         test rax, rax
         jnz  next_dec_digit
 
-        inc  rdi                        ; rdi to start of res str
+        lea  rbx, [ConverterBuffer + MAX_INT_ASCII_LEN]     ; rbx = end of buffer
 
-        lea  rbx, [ConverterBuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
+        pop  rax
+        test rax, rax
+        jns  store_next_dec_digit   ; if is negative
+        mov  dl, '-'                ; print minus
+        mov  [rdi], dl
+        dec  rdi
 
     store_next_dec_digit:
         mov  al, [rdi]
