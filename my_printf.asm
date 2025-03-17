@@ -9,6 +9,10 @@
 
 %assign MAX_INT_ASCII_LEN   18          ; 20 digits in max int (2^64)
 
+%assign FRAC_LENGTH         52
+%assign EXP_LENGTH          11
+%assign BIAS                1023
+
 section .text
 
 global MyPrintf            ; predefined entry point name for ld
@@ -37,6 +41,26 @@ MyPrintf:
         mov  rsi, PrintfBuffer          ; rsi = place to print in the buffer
         xor  rcx, rcx                   ; rcx = stack offset for addressing the argument for the current specifier. 
                                         ; argument for current specifier = [rbp + rcx * 8 + 16]
+
+
+
+
+        ; ;=======================TEST DoubleToASCII=====================================================================
+        
+        movsd xmm0, [test_double]    ; xmm0 = 10^8
+        call DoubleToASCII
+
+
+
+
+
+
+
+
+
+        ;=======================TEST DoubleToASCII=====================================================================
+
+
 read_new_sym:
         cmp  rsi, PrintfBufferEnd
         jb   free_buffer
@@ -264,10 +288,13 @@ IntToASCII:
 
         pop  rax
         test rax, rax
-        jns  store_next_dec_digit   ; if is negative
+        jns  store_dec_num   ; if is negative
         mov  dl, '-'                ; print minus
         mov  [rdi], dl
         dec  rdi
+
+    store_dec_num:
+        inc  rdi
 
     store_next_dec_digit:
         mov  al, [rdi]
@@ -375,7 +402,7 @@ OctToASCII:
 ;
 ; Input:        rax = dec_num, rsi = dest_buffer
 ; Output:       rsi += printed_number_length
-; Destroys:     rax, rbx, rdx, rsi, rdi
+; Destroys:     rax, rbx, rsi, rdi
 ;=================================================================================
 HexToASCII:
         xor  bh, bh                 ; bh = digit of rax (0 -> 16)
@@ -419,6 +446,94 @@ HexToASCII:
 ;=================================================================================
 
 
+;=================================================================================
+; Converts double number to ascii
+; Input:    xmm0 = the bit sequence of double number; rsi = dest_buffer
+; Output:   rsi += printed_number_length
+; Destroys:
+;=================================================================================
+DoubleToASCII:
+        roundsd xmm1, xmm0, 1  
+        cvttsd2si rax, xmm1             ; rax = целая часть
+        call IntToASCII
+        mov  dl, ','                    ; print ','
+        mov  [rsi], dl
+        inc  rsi
+
+        subsd xmm0, xmm1                ; xmm0 = дробная часть
+        
+        movsd xmm1, [FracMultiplier]    ; xmm0 = 10^8
+        mulsd xmm0, xmm1                ; дробная часть с точностью до 8 знака после запятой
+        
+        cvttsd2si rax, xmm0             ; rax = дробная часть
+
+        push rax
+        push rcx
+        mov  rbx, 10
+        mov  rcx, 8                     ; rcx = сколько нулей нужно напечатать
+
+    ; посчитать нули
+        jmp test_frac_digit
+    count_first_frac_nulls:             ; всего 8 цифр, IntToASCII печатает существенную часть, недостающие нули нужно напечатать самим
+        dec  rcx
+
+    test_frac_digit:
+        xor  rdx, rdx
+        div  rbx                        ; rdx = остаток от деления на 10  =  цифра числа
+        or   rdx, rax
+        test rdx, rdx                   ; если цифра ноль и оставшееся число = 0, то все цифры подсчитаны
+        jnz  count_first_frac_nulls
+
+
+    ; напечатать недостающие нули
+        jmp print_frac_nulls
+    print_next_frac_null:
+        mov  byte [rsi], '0'
+        inc  rsi
+        dec  rcx
+    print_frac_nulls:
+        test rcx, rcx
+        jnz  print_next_frac_null
+
+
+        pop  rcx
+        pop  rax
+
+        call IntToASCII                 ; напечатать rax = дробная часть
+
+        ret
+
+
+        ; movq xmm0, rax
+
+        ; shl  rax, EXP_LENGTH + 1        ; зануляем все биты начиная c 52 чтобы получить 'frac'
+        ; shr  rax, EXP_LENGTH + 1
+
+        
+
+
+        ; movq xmm0, rdx
+        ; shr  rdx, FRAC_LENGTH
+        ; sub  rdx, BIAS                  ; rdx = E
+
+        ; mov  rbx, FRAC_LENGTH
+        ; sub  rbx, rdx
+        ; mov  rbx, rdx                   ; rdx = 52 - E
+
+        ; movq xmm0, rax
+
+        ; shl  rax, EXP_LENGTH + 1        ; зануляем все биты начиная c 52 чтобы получить 'frac'
+        ; shr  rax, EXP_LENGTH + 1       
+
+        ; or   rax, 0x0010000000000000    ; 53-й бит выставляем равным 1 (мантисса M = 1.'frac')
+        ;                                 ; V = 1.'frac' * 2^E = 1'frac' * 2^E / (1 << 52) = 1'frac' / (1 << (52 - E))
+
+        ; mov  rbx, 1
+        ; sal  rbx, rdx                   ; rdx = (1 << (52 - E)
+
+        ; ret
+;=================================================================================
+
 
 
 ;=================================================================================
@@ -449,6 +564,10 @@ PrintfBuffer db PRINTF_BUFFER_LEN dup (0)
 PrintfBufferEnd:
 
 db           'DETSKOE PORNO'
-ConverterBuffer   db MAX_INT_ASCII_LEN dup (0)
+ConverterBuffer db MAX_INT_ASCII_LEN dup (0)
+
+FracMultiplier  dq 100000000.0  ; 10^8 в формате double
+
+test_double     dq 1.2345
 
 section     .note.GNU-stack noalloc noexec nowrite progbits
