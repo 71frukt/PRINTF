@@ -453,18 +453,21 @@ HexToASCII:
 ; Destroys:
 ;=================================================================================
 DoubleToASCII:
-        roundsd xmm1, xmm0, 1  
+        roundsd xmm1, xmm0, 3           ; округление в сторону нуля  
         cvttsd2si rax, xmm1             ; rax = целая часть
+
+        movsd xmm2, [taking_modulo_mask]
+        andpd xmm0, xmm2
+        andpd xmm1, xmm2
+        subsd xmm0, xmm1                ; xmm0 = дробная часть
+        
         call IntToASCII
         mov  dl, ','                    ; print ','
         mov  [rsi], dl
         inc  rsi
 
-        subsd xmm0, xmm1                ; xmm0 = дробная часть
-        
         movsd xmm1, [FracMultiplier]    ; xmm0 = 10^8
         mulsd xmm0, xmm1                ; дробная часть с точностью до 8 знака после запятой
-        
         cvttsd2si rax, xmm0             ; rax = дробная часть
 
         push rax
@@ -476,6 +479,8 @@ DoubleToASCII:
         jmp test_frac_digit
     count_first_frac_nulls:             ; всего 8 цифр, IntToASCII печатает существенную часть, недостающие нули нужно напечатать самим
         dec  rcx
+        test rcx, rcx
+        jz   print_frac_nulls           ; если цифр больше 8 напечатать 8
 
     test_frac_digit:
         xor  rdx, rdx
@@ -568,6 +573,7 @@ ConverterBuffer db MAX_INT_ASCII_LEN dup (0)
 
 FracMultiplier  dq 100000000.0  ; 10^8 в формате double
 
-test_double     dq 1.2345
-
+align 16
+test_double     dq -1.2345
+taking_modulo_mask  dq 0x7FFFFFFFFFFFFFFF
 section     .note.GNU-stack noalloc noexec nowrite progbits
