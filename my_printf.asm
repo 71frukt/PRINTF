@@ -13,6 +13,7 @@
 %assign EXP_LENGTH          11
 %assign BIAS                1023
 
+%assign CHECK_INF_MASK      0x00000000000007FF      ; first leftward EXP_LENGTH bites = 1, the others = 0
 section .text
 
 global MyPrintf            ; predefined entry point name for ld
@@ -27,27 +28,55 @@ global MyPrintf            ; predefined entry point name for ld
 ;=================================================================================
 MyPrintf:
         pop  rax                        ; return addr -> rax
+
         push r9                         ; 2..n args in stack, rdi remains eq format str
         push r8
         push rcx
         push rdx
         push rsi
+
+        sub rsp, 8
+        movsd [rsp], xmm7
+
+        sub rsp, 8
+        movsd [rsp], xmm6
+
+        sub rsp, 8
+        movsd [rsp], xmm5
+
+        sub rsp, 8
+        movsd [rsp], xmm4
+
+        sub rsp, 8
+        movsd [rsp], xmm3
+
+        sub rsp, 8
+        movsd [rsp], xmm2
+
+        sub rsp, 8
+        movsd [rsp], xmm1
+
+        sub rsp, 8
+        movsd [rsp], xmm0
+
         push rax                        ; return addr -> stack
 
 
         push rbp                        ; install the stack frame
-        mov  rbp, rsp                   ; [rbp + 0*8 + 16] = 2nd arg
+        mov  rbp, rsp
 
         mov  rsi, PrintfBuffer          ; rsi = place to print in the buffer
-        xor  rcx, rcx                   ; rcx = stack offset for addressing the argument for the current specifier. 
-                                        ; argument for current specifier = [rbp + rcx * 8 + 16]
 
-
+        xor  rcx, rcx
+                                        ; cl - number of current usual %_ arg, ch - for current double arg
+                                        ; argument for usual %_ = [rbp + cl * 8 + 16 + 8*8]
+                                        ; argument for %f       = [rbp + cl * 8 + 16 + 8*8] , ch >= 8
+                                        ; argument for %f       = [rbp + ch * 8 + 16]       , ch <  8
 
 
 ;=======================TEST DoubleToASCII=====================================================================
-    movsd xmm0, [test_double]    ; xmm0 = 10^8
-    call DoubleToASCII
+    ; movsd xmm0, [test_double]    ; xmm0 = 10^8
+    ; call DoubleToASCII
 ;=======================TEST DoubleToASCII=====================================================================
 
 
@@ -68,7 +97,6 @@ read_new_sym:
         cmp  al, '%'
         je  is_specifier
 
-        ; lea  rbx, [ PrintfBuffer]
         mov  [rsi], al
         inc  rsi
         jmp  read_new_sym
@@ -80,7 +108,7 @@ is_specifier:
         inc  rdi
 
         sub  rax, '%'
-        sal  rax, 1
+        lea  rax, [rax * 4 + rax]       ; rax *= 5  (5 because near jump - 5 bytes on each instruction)
 
         lea  rax, [PrintfJumpTable + rax]
         jmp  rax
@@ -90,7 +118,7 @@ end_of_spec_str:
 
         leave
         pop  rax                        ; ret addr is there
-        add  rsp, 5 * 8                 ; clean up the stack after yourself
+        add  rsp, 13 * 8                ; clean up the stack after yourself
         push rax                        ; ret addr back to where it was
         ret
 ;----------------------------------------------------------------------------------------
@@ -98,34 +126,40 @@ end_of_spec_str:
 
 ;----------------------------------------------------------------------------------------
 PrintfJumpTable:
-    spec_percent:
-        jmp print_percent
 
-        db ('b' - '%') * 2 - 2 dup(0x90)
+    spec_percent:
+        jmp near print_percent
+
+        db ('b' - '%') * 5 - 5 dup(0x90)
 
     spec_b:
-        jmp print_bin
+        jmp near print_bin
         
     spec_c:
-        jmp print_char
+        jmp near print_char
 
     spec_d:
-        jmp print_int
+        jmp near print_int
 
-        db ('h' - 'd') * 2 - 2 dup(0x90)
+        db ('f' - 'd') * 5 - 5 dup(0x90)
+
+    spec_f:
+        jmp near print_double
+
+        db ('h' - 'f') * 5 - 5 dup(0x90)
 
     spec_h:
-        jmp print_hex
+        jmp near print_hex
 
-        db ('o' - 'h') * 2 - 2 dup (0x90)
+        db ('o' - 'h') * 5 - 5 dup (0x90)
     
     spec_o:
-        jmp print_octal
+        jmp near print_octal
 
-        db ('s' - 'o') * 2 - 2 dup(0x90)
+        db ('s' - 'o') * 5 - 5 dup(0x90)
         
     spec_s:
-        jmp print_str
+        jmp near print_str
 
 
         
@@ -140,16 +174,22 @@ print_percent:
         jmp read_new_sym
 
 print_bin:
-        mov  rax, [rbp + rcx * 8 + 16]
-        inc  rcx
+        push rcx
+        xor  ch, ch
+        mov  rax, [rbp + rcx * 8 + 16 + 8*8]
+        pop  rcx
+        inc  cl
         push rdi
         call BinToASCII
         pop  rdi
         jmp  read_new_sym
 
 print_char:
-        mov  al, [rbp + rcx * 8 + 16]
-        inc  rcx
+        push rcx
+        xor  ch, ch
+        mov  al, [rbp + rcx * 8 + 16 + 8*8]
+        pop  rcx
+        inc  cl
 
         ; lea  rbx, [PrintfBuffer]
         mov  [rsi], al
@@ -157,18 +197,47 @@ print_char:
         jmp  read_new_sym
 
 print_int:
-        mov  rax, [rbp + rcx * 8 + 16]
-        inc  rcx
+        cmp  cl, 5
+        jae  usual_arg_in_stack             ; если количество обычных аргументов уже больше 5, то они изначально были переданы через стек
+        
+        push rcx
+        xor  ch, ch
+        mov  rax, [rbp + rcx * 8 + 16 + 8*8]
+        pop  rcx
+        inc  cl   
+        jmp print_res_int
 
+    usual_arg_in_stack:
+        push rcx
+        sub  cl, 5                          ; количество обычных аргументов, переданных через стек
+
+        cmp  ch, 8                          ; количество double  аргументов, переданных через стек
+        jae  double_arg_in_stack_pr_int  
+        mov  ch, 8
+    double_arg_in_stack_pr_int:
+        sub  ch, 8
+
+        add  cl, ch                         ; rcx = сколько всего аргументов передали через стек
+        xor  ch, ch
+
+        mov  rax, [rbp + rcx * 8 + 16 + (8 + 5) * 8]
+        pop  rcx
+        inc  cl
+        
+    print_res_int:
         push rdi
         call IntToASCII
         pop  rdi
         
-        jmp  read_new_sym
+        jmp  read_new_sym 
+
 
 print_str:
-        mov  rax, [rbp + rcx * 8 + 16]
-        inc  rcx
+        push rcx
+        xor  ch, ch
+        mov  rax, [rbp + rcx * 8 + 16 + 8*8]
+        pop  rcx
+        inc  cl
         push rdi
 
         next_char_print_str:
@@ -191,8 +260,11 @@ print_str:
         jmp  read_new_sym
 
 print_octal:
-        mov  rax, [rbp + rcx * 8 + 16]
-        inc  rcx
+        push rcx
+        xor  ch, ch
+        mov  rax, [rbp + rcx * 8 + 16 + 8*8]
+        pop  rcx
+        inc  cl
 
         push rdi
         call OctToASCII
@@ -201,8 +273,11 @@ print_octal:
         jmp  read_new_sym
 
 print_hex:
-        mov  rax, [rbp + rcx * 8 + 16]
-        inc  rcx
+        push rcx
+        xor  ch, ch
+        mov  rax, [rbp + rcx * 8 + 16 + 8*8]
+        pop  rcx
+        inc  cl
 
         push rdi
         call HexToASCII
@@ -210,6 +285,43 @@ print_hex:
         
         jmp  read_new_sym
 
+
+print_double:
+        cmp  ch, 8
+        jae  double_arg_in_stack_pr_double
+
+        push rcx
+        xor  cl, cl
+        sar  rcx, 8     ; rcx = ch = cur num of xmm arg
+        ; rbp + ch * 8 + 16
+        movsd xmm0, [rbp + rcx * 8 + 16]
+        pop  rcx
+        inc  ch
+        jmp  print_res_double
+
+    double_arg_in_stack_pr_double:
+        push rcx
+        sub  ch, 8
+
+        cmp  cl, 5                         ; количество обычных аргументов, переданных через стек
+        jae  usual_arg_in_stack_pr_double
+        mov  cl, 5
+    usual_arg_in_stack_pr_double:
+        sub  cl, 5
+
+        add  cl, ch                         ; rcx = сколько всего аргументов передали через стек
+        xor  ch, ch
+
+        movsd xmm0, [rbp + rcx * 8 + 16 + (8 + 5)*8]
+        pop  rcx
+        inc  ch
+
+    print_res_double:
+        push rdi
+        call DoubleToASCII
+        pop  rdi
+        
+        jmp  read_new_sym
 ;=================================================================================
 
 
@@ -435,9 +547,47 @@ HexToASCII:
 ; Converts double number to ascii
 ; Input:    xmm0 = the bit sequence of double number; rsi = dest_buffer
 ; Output:   rsi += printed_number_length
-; Destroys:
+; Destroys: xmm0, xmm1, xmm2, rax, rbx, rdx, rsi, rdi
 ;=================================================================================
 DoubleToASCII:
+        movq rax, xmm0
+        push rax
+        shl  rax, 1
+        shr  rax, FRAC_LENGTH + 1          ; rax = exp  и отбросить бит знака
+        xor  rax, CHECK_INF_MASK
+        pop  rax
+        jnz  normal_number
+
+        ; это бесконечность или NAN
+        push rax
+        sal  rax, EXP_LENGTH + 1
+        test rax, rax
+        pop  rax
+        jnz  is_nan
+
+        ; это бесконечность
+        rol  rax, 1                         ; проверка на бит знака
+        test rax, 1
+        ror  rax, 1
+        jz    positive_inf
+        mov  byte [rsi],     '-'
+        inc  rsi
+
+    positive_inf:
+        mov  byte [rsi],     'i'
+        mov  byte [rsi + 1], 'n'
+        mov  byte [rsi + 2], 'f'
+        add  rsi, 3
+        ret
+
+    is_nan:
+        mov  byte [rsi],     'n'
+        mov  byte [rsi + 1], 'a'
+        mov  byte [rsi + 2], 'n'
+        add  rsi, 3
+        ret
+
+    normal_number:
         roundsd xmm1, xmm0, 3           ; округление в сторону нуля  
         cvttsd2si rax, xmm1             ; rax = целая часть
 
@@ -447,7 +597,7 @@ DoubleToASCII:
         subsd xmm0, xmm1                ; xmm0 = дробная часть
         
         call IntToASCII
-        mov  dl, ','                    ; print ','
+        mov  dl, '.'                    ; print ','
         mov  [rsi], dl
         inc  rsi
 
@@ -478,6 +628,12 @@ DoubleToASCII:
     ; напечатать недостающие нули
         jmp print_frac_nulls
     print_next_frac_null:
+
+        cmp  rsi, PrintfBufferEnd       ; сбросить буфер если полон
+        jb   free_buffer_dtoa
+        call ResetPrintfBuffer
+        free_buffer_dtoa:
+
         mov  byte [rsi], '0'
         inc  rsi
         dec  rcx
@@ -492,36 +648,6 @@ DoubleToASCII:
         call IntToASCII                 ; напечатать rax = дробная часть
 
         ret
-
-
-        ; movq xmm0, rax
-
-        ; shl  rax, EXP_LENGTH + 1        ; зануляем все биты начиная c 52 чтобы получить 'frac'
-        ; shr  rax, EXP_LENGTH + 1
-
-        
-
-
-        ; movq xmm0, rdx
-        ; shr  rdx, FRAC_LENGTH
-        ; sub  rdx, BIAS                  ; rdx = E
-
-        ; mov  rbx, FRAC_LENGTH
-        ; sub  rbx, rdx
-        ; mov  rbx, rdx                   ; rdx = 52 - E
-
-        ; movq xmm0, rax
-
-        ; shl  rax, EXP_LENGTH + 1        ; зануляем все биты начиная c 52 чтобы получить 'frac'
-        ; shr  rax, EXP_LENGTH + 1       
-
-        ; or   rax, 0x0010000000000000    ; 53-й бит выставляем равным 1 (мантисса M = 1.'frac')
-        ;                                 ; V = 1.'frac' * 2^E = 1'frac' * 2^E / (1 << 52) = 1'frac' / (1 << (52 - E))
-
-        ; mov  rbx, 1
-        ; sal  rbx, rdx                   ; rdx = (1 << (52 - E)
-
-        ; ret
 ;=================================================================================
 
 
@@ -558,7 +684,10 @@ ConverterBuffer db MAX_INT_ASCII_LEN dup (0)
 
 FracMultiplier  dq 100000000.0  ; 10^8 в формате double
 
+NAN_str         db 'nan'
+
 align 16
-test_double     dq -1.2345
+test_double         dq -1.2345
 taking_modulo_mask  dq 0x7FFFFFFFFFFFFFFF
+
 section     .note.GNU-stack noalloc noexec nowrite progbits
