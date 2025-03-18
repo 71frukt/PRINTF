@@ -5,9 +5,9 @@
 ; nasm -f elf64 -l my_printf.lst my_printf.asm  ;  ld -s -o my_printf my_printf.o
 
 %assign MAX_FORMAT_STR_LEN  100
-%assign PRINTF_BUFFER_LEN   64
+%assign PRINTF_BUFFER_LEN   8
 
-%assign MAX_INT_ASCII_LEN   18          ; 20 digits in max int (2^64)
+%assign MAX_NUM_ASCII_LEN   10          ; 10 digits in max int (2^64)
 
 %assign FRAC_LENGTH         52
 %assign EXP_LENGTH          11
@@ -198,7 +198,7 @@ print_char:
 
 print_int:
         cmp  cl, 5
-        jae  usual_arg_in_stack             ; если количество обычных аргументов уже больше 5, то они изначально были переданы через стек
+        jae  usual_arg_in_stack_pr_int        ; если количество обычных аргументов уже больше 5, то они изначально были переданы через стек
         
         push rcx
         xor  ch, ch
@@ -207,7 +207,7 @@ print_int:
         inc  cl   
         jmp print_res_int
 
-    usual_arg_in_stack:
+    usual_arg_in_stack_pr_int:
         push rcx
         sub  cl, 5                          ; количество обычных аргументов, переданных через стек
 
@@ -233,11 +233,47 @@ print_int:
 
 
 print_str:
+        cmp  cl, 5
+        jae  usual_arg_in_stack_pr_str        ; если количество обычных аргументов уже больше 5, то они изначально были переданы через стек
+        
         push rcx
         xor  ch, ch
         mov  rax, [rbp + rcx * 8 + 16 + 8*8]
         pop  rcx
+        inc  cl   
+        jmp print_res_str
+
+    usual_arg_in_stack_pr_str:
+        push rcx
+        sub  cl, 5                          ; количество обычных аргументов, переданных через стек
+
+        cmp  ch, 8                          ; количество double  аргументов, переданных через стек
+        jae  double_arg_in_stack_pr_str  
+        mov  ch, 8
+    double_arg_in_stack_pr_str:
+        sub  ch, 8
+
+        add  cl, ch                         ; rcx = сколько всего аргументов передали через стек
+        xor  ch, ch
+
+        mov  rax, [rbp + rcx * 8 + 16 + (8 + 5) * 8]
+        pop  rcx
         inc  cl
+        
+    ; print_res_oct:
+    ;     push rdi
+    ;     call OctToASCII
+    ;     pop  rdi
+        
+    ;     jmp  read_new_sym 
+
+
+    ;     push rcx
+    ;     xor  ch, ch
+    ;     mov  rax, [rbp + rcx * 8 + 16 + 8*8]
+    ;     pop  rcx
+    ;     inc  cl
+    print_res_str:
         push rdi
 
         next_char_print_str:
@@ -260,30 +296,75 @@ print_str:
         jmp  read_new_sym
 
 print_octal:
+        cmp  cl, 5
+        jae  usual_arg_in_stack_pr_oct        ; если количество обычных аргументов уже больше 5, то они изначально были переданы через стек
+        
         push rcx
         xor  ch, ch
         mov  rax, [rbp + rcx * 8 + 16 + 8*8]
         pop  rcx
-        inc  cl
+        inc  cl   
+        jmp print_res_oct
 
+    usual_arg_in_stack_pr_oct:
+        push rcx
+        sub  cl, 5                          ; количество обычных аргументов, переданных через стек
+
+        cmp  ch, 8                          ; количество double  аргументов, переданных через стек
+        jae  double_arg_in_stack_pr_oct  
+        mov  ch, 8
+    double_arg_in_stack_pr_oct:
+        sub  ch, 8
+
+        add  cl, ch                         ; rcx = сколько всего аргументов передали через стек
+        xor  ch, ch
+
+        mov  rax, [rbp + rcx * 8 + 16 + (8 + 5) * 8]
+        pop  rcx
+        inc  cl
+        
+    print_res_oct:
         push rdi
         call OctToASCII
         pop  rdi
         
-        jmp  read_new_sym
+        jmp  read_new_sym 
+
 
 print_hex:
+        cmp  cl, 5
+        jae  usual_arg_in_stack_pr_hex        ; если количество обычных аргументов уже больше 5, то они изначально были переданы через стек
+        
         push rcx
         xor  ch, ch
         mov  rax, [rbp + rcx * 8 + 16 + 8*8]
         pop  rcx
-        inc  cl
+        inc  cl   
+        jmp print_res_hex
 
+    usual_arg_in_stack_pr_hex:
+        push rcx
+        sub  cl, 5                          ; количество обычных аргументов, переданных через стек
+
+        cmp  ch, 8                          ; количество double  аргументов, переданных через стек
+        jae  double_arg_in_stack_pr_hex  
+        mov  ch, 8
+    double_arg_in_stack_pr_hex:
+        sub  ch, 8
+
+        add  cl, ch                         ; rcx = сколько всего аргументов передали через стек
+        xor  ch, ch
+
+        mov  rax, [rbp + rcx * 8 + 16 + (8 + 5) * 8]
+        pop  rcx
+        inc  cl
+        
+    print_res_hex:
         push rdi
         call HexToASCII
         pop  rdi
         
-        jmp  read_new_sym
+        jmp  read_new_sym 
 
 
 print_double:
@@ -355,7 +436,7 @@ CountStrLen:
 ; Destroys:     rax, rbx, rdx, rsi, rdi
 ;=================================================================================
 IntToASCII:
-        mov  rdi, ConverterBuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
+        mov  rdi, ConverterBuffer + MAX_NUM_ASCII_LEN      ; rdi = end of buffer
 
         mov  rbx, 10                    ; in order to then div by 10 with the residue
 
@@ -368,11 +449,6 @@ IntToASCII:
         inc  rax
 
     next_dec_digit:
-        cmp  rsi, PrintfBufferEnd
-        jb   free_buffer_itoa
-        call ResetPrintfBuffer
-
-    free_buffer_itoa:
         xor  rdx, rdx
         div  rbx                        ; rdx = residue
         add  dl, '0'
@@ -381,7 +457,7 @@ IntToASCII:
         test rax, rax
         jnz  next_dec_digit
 
-        lea  rbx, [ConverterBuffer + MAX_INT_ASCII_LEN]     ; rbx = end of buffer
+        lea  rbx, [ConverterBuffer + MAX_NUM_ASCII_LEN]     ; rbx = end of buffer
 
         pop  rax
         test rax, rax
@@ -389,6 +465,17 @@ IntToASCII:
         mov  dl, '-'                ; print minus
         mov  [rdi], dl
         dec  rdi
+
+
+        push rsi
+        add  rsi, MAX_NUM_ASCII_LEN
+        cmp  rsi, PrintfBufferEnd
+        pop  rsi
+        jb   store_dec_num
+
+        push rdi
+        call ResetPrintfBuffer
+        pop  rdi
 
     store_dec_num:
         inc  rdi
@@ -458,14 +545,9 @@ BinToASCII:
 ; Destroys:     rax, rbx, rdx, rsi, rdi
 ;=================================================================================
 OctToASCII:
-        mov  rdi, ConverterBuffer + MAX_INT_ASCII_LEN      ; rdi = end of buffer
+        mov  rdi, ConverterBuffer + MAX_NUM_ASCII_LEN      ; rdi = end of buffer
 
     next_oct_digit:
-        cmp  rsi, PrintfBufferEnd
-        jb   free_buffer_otoa
-        call ResetPrintfBuffer
-
-    free_buffer_otoa:
         mov  dl, al
         and  dl, 7
         sar  rax, 3
@@ -478,7 +560,17 @@ OctToASCII:
 
         inc  rdi                        ; rdi to start of res str
 
-        lea  rbx, [ConverterBuffer + MAX_INT_ASCII_LEN]      ; rbx = end of buffer
+        lea  rbx, [ConverterBuffer + MAX_NUM_ASCII_LEN]      ; rbx = end of buffer
+
+        push rsi
+        add  rsi, MAX_NUM_ASCII_LEN
+        cmp  rsi, PrintfBufferEnd
+        pop  rsi
+        jb   store_next_oct_digit
+
+        push rdi
+        call ResetPrintfBuffer
+        pop  rdi
 
     store_next_oct_digit:
         mov  al, [rdi]
@@ -597,7 +689,7 @@ DoubleToASCII:
         subsd xmm0, xmm1                ; xmm0 = дробная часть
         
         call IntToASCII
-        mov  dl, '.'                    ; print ','
+        mov  dl, '.'                    ; print '.'
         mov  [rsi], dl
         inc  rsi
 
@@ -680,7 +772,7 @@ PrintfBuffer db PRINTF_BUFFER_LEN dup (0)
 PrintfBufferEnd:
 
 db           'DETSKOE PORNO'
-ConverterBuffer db MAX_INT_ASCII_LEN dup (0)
+ConverterBuffer db MAX_NUM_ASCII_LEN dup (0)
 
 FracMultiplier  dq 100000000.0  ; 10^8 в формате double
 
