@@ -45,20 +45,10 @@ MyPrintf:
 
 
 
-        ; ;=======================TEST DoubleToASCII=====================================================================
-        
-        movsd xmm0, [test_double]    ; xmm0 = 10^8
-        call DoubleToASCII
-
-
-
-
-
-
-
-
-
-        ;=======================TEST DoubleToASCII=====================================================================
+;=======================TEST DoubleToASCII=====================================================================
+    movsd xmm0, [test_double]    ; xmm0 = 10^8
+    call DoubleToASCII
+;=======================TEST DoubleToASCII=====================================================================
 
 
 read_new_sym:
@@ -93,14 +83,9 @@ is_specifier:
         sal  rax, 1
 
         lea  rax, [PrintfJumpTable + rax]
-
         jmp  rax
 
 end_of_spec_str:
-        ; mov  eax, dword [rbp + 16]
-        ; mov  dword [rsi], eax
-        ; mov  byte  [rsi + 4], 0
-
         call ResetPrintfBuffer
 
         leave
