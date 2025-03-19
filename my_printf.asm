@@ -5,7 +5,7 @@
 ; nasm -f elf64 -l my_printf.lst my_printf.asm  ;  ld -s -o my_printf my_printf.o
 
 %assign MAX_FORMAT_STR_LEN  100
-%assign PRINTF_BUFFER_LEN   8
+%assign PRINTF_BUFFER_LEN   255
 
 %assign MAX_NUM_ASCII_LEN   10          ; 10 digits in max int (2^64)
 
@@ -73,13 +73,6 @@ MyPrintf:
                                         ; argument for %f       = [rbp + cl * 8 + 16 + 8*8] , ch >= 8
                                         ; argument for %f       = [rbp + ch * 8 + 16]       , ch <  8
 
-
-;=======================TEST DoubleToASCII=====================================================================
-    ; movsd xmm0, [test_double]    ; xmm0 = 10^8
-    ; call DoubleToASCII
-;=======================TEST DoubleToASCII=====================================================================
-
-
 read_new_sym:
         cmp  rsi, PrintfBufferEnd
         jb   free_buffer
@@ -146,12 +139,7 @@ PrintfJumpTable:
     spec_f:
         jmp near print_double
 
-        db ('h' - 'f') * 5 - 5 dup(0x90)
-
-    spec_h:
-        jmp near print_hex
-
-        db ('o' - 'h') * 5 - 5 dup (0x90)
+        db ('o' - 'f') * 5 - 5 dup(0x90)
     
     spec_o:
         jmp near print_octal
@@ -161,7 +149,10 @@ PrintfJumpTable:
     spec_s:
         jmp near print_str
 
+        db ('x' - 's') * 5 - 5 dup (0x90)
 
+    spec_x:
+        jmp near print_hex
         
 ;----------------------------------------------------------------------------------------
 
@@ -683,7 +674,7 @@ DoubleToASCII:
         roundsd xmm1, xmm0, 3           ; округление в сторону нуля  
         cvttsd2si rax, xmm1             ; rax = целая часть
 
-        movsd xmm2, [taking_modulo_mask]
+        movsd xmm2, [taking_modulo_mask]    ; обнуление старшего (знакового) бита
         andpd xmm0, xmm2
         andpd xmm1, xmm2
         subsd xmm0, xmm1                ; xmm0 = дробная часть
@@ -693,7 +684,7 @@ DoubleToASCII:
         mov  [rsi], dl
         inc  rsi
 
-        movsd xmm1, [FracMultiplier]    ; xmm0 = 10^8
+        movsd xmm1, [FracMultiplier]    ; xmm1 = 10^8
         mulsd xmm0, xmm1                ; дробная часть с точностью до 8 знака после запятой
         cvttsd2si rax, xmm0             ; rax = дробная часть
 
