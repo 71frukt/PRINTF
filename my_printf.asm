@@ -111,7 +111,7 @@ end_of_spec_str:
 
         leave
         pop  rax                        ; ret addr is there
-        add  rsp, 13 * 8                ; clean up the stack after yourself
+        add  rsp, 13 * 8                ; TODO clean up the stack after yourself
         push rax                        ; ret addr back to where it was
         ret
 ;----------------------------------------------------------------------------------------
@@ -267,7 +267,7 @@ print_str:
     print_res_str:
         push rdi
 
-        next_char_print_str:
+    next_char_print_str:
         cmp  rsi, PrintfBufferEnd
         jb   free_buffer_print_str
         call ResetPrintfBuffer
@@ -397,29 +397,6 @@ print_double:
 ;=================================================================================
 
 
-
-;=================================================================================
-; Counts length of string formatted like ".. .."
-;
-; Input:        rdi = str_pointer
-; Output:       rax = length (excluding "")
-; Destroys:     rax, rcx, rdi
-;=================================================================================
-CountStrLen:
-        inc  rdi                           ; excluding opening "
-        mov  rax, '"'                      ; = "
-        mov  rcx, MAX_FORMAT_STR_LEN
-
-        repne scasb
-
-        mov  rax, MAX_FORMAT_STR_LEN - 1    ; excluding closing "
-        sub  rax, rcx
-
-        ret
-;=================================================================================
-
-
-
 ;=================================================================================
 ; Converts the decimal number to ASCII
 ; Input:        rax = dec_num, rsi = dest_buffer
@@ -429,7 +406,7 @@ CountStrLen:
 IntToASCII:
         mov  rdi, ConverterBuffer + MAX_NUM_ASCII_LEN      ; rdi = end of buffer
 
-        mov  rbx, 10                    ; in order to then div by 10 with the residue
+        mov  rbx, 10                    ; in order to then div by 10 with the remainder
 
         cdqe                            ; extend eax to rax in additional code 
 
@@ -441,7 +418,7 @@ IntToASCII:
 
     next_dec_digit:
         xor  rdx, rdx
-        div  rbx                        ; rdx = residue
+        div  rbx                        ; rdx = remainder
         add  dl, '0'
         mov  [rdi], dl
         dec  rdi
@@ -758,19 +735,11 @@ ResetPrintfBuffer:
 
 section     .data
  
-
 PrintfBuffer db PRINTF_BUFFER_LEN dup (0)
 PrintfBufferEnd:
 
-db           'DETSKOE PORNO'
 ConverterBuffer db MAX_NUM_ASCII_LEN dup (0)
 
-FracMultiplier  dq 100000000.0  ; 10^8 в формате double
-
-NAN_str         db 'nan'
-
 align 16
-test_double         dq -1.2345
+FracMultiplier      dq 100000000.0  ; 10^8 в формате double
 taking_modulo_mask  dq 0x7FFFFFFFFFFFFFFF
-
-section     .note.GNU-stack noalloc noexec nowrite progbits
